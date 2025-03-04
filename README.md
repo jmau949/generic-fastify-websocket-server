@@ -32,14 +32,6 @@ A **production-grade Fastify WebSocket server** with:
 - **If valid** → Connection is established.
 - **If invalid** → The server closes the WebSocket connection (`1008` policy violation).
 
-### **3️⃣ WebSocket Messaging & Broadcasting**
-- Users send messages to `/ws`.
-- The backend **logs, processes, and broadcasts messages** to all connected clients.
-- Messages are JSON formatted:  
-  ```json
-  { "user": "USER_ID", "message": "Hello WebSocket!" }
-  ```
-
 ---
 
 ## 📌 **Project Setup**
@@ -66,177 +58,147 @@ npm run dev
 
 ---
 
-## 📌 **Code Overview**
-### **Backend**
-#### **`server.ts` (Fastify Server Setup)**
-```ts
-import Fastify from "fastify";
-import websocketPlugin from "@fastify/websocket";
-import fastifyCookie from "@fastify/cookie";
-import { websocketController } from "./controllers/websocketController";
+# 📡 Socket.io Integration with Fastify
 
-const server = Fastify({ logger: true });
-
-server.register(fastifyCookie, {
-  secret: process.env.COOKIE_SECRET || "my-secret",
-  parseOptions: { httpOnly: true, secure: false, sameSite: "strict" },
-});
-
-server.register(websocketPlugin);
-server.register(websocketController);
-
-server.listen({ port: 3020, host: "0.0.0.0" }).then(() => {
-  server.log.info(" WebSocket server running on ws://localhost:3020/ws");
-});
-```
-
-#### **`websocketController.ts` (Handles WebSocket Connections)**
-```ts
-import { FastifyInstance, FastifyRequest } from "fastify";
-import WebSocket from "ws";
-import { validateToken } from "../plugins/auth";
-
-export async function websocketController(fastify: FastifyInstance) {
-  const clients = new Set<WebSocket>();
-
-  fastify.get(
-    "/ws",
-    { websocket: true },
-    async (socket: WebSocket, req: FastifyRequest) => {
-      try {
-        const token = req.cookies.authToken;
-        if (!token) {
-          socket.close(1008, "Missing authentication token");
-          return;
-        }
-
-        const user = await validateToken(token);
-        if (!user) {
-          socket.close(1008, "Invalid authentication token");
-          return;
-        }
-
-        clients.add(socket);
-        fastify.log.info(`WebSocket connected: User ${user.sub}`);
-
-        socket.on("message", (message: WebSocket.RawData) => {
-          const msg = message.toString();
-          fastify.log.info(`📩 Received from ${user.sub}: ${msg}`);
-
-          for (const client of clients) {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(JSON.stringify({ user: user.sub, message: msg }));
-            }
-          }
-        });
-
-        socket.on("close", () => {
-          clients.delete(socket);
-          fastify.log.info(`WebSocket disconnected: User ${user.sub}`);
-        });
-
-      } catch (error) {
-        socket.close(1008, "Authentication failed");
-      }
-    }
-  );
-}
-```
+This document explains how **Socket.io** works in a Fastify application, how clients connect, and how authentication is handled.
 
 ---
 
-### **Frontend**
-#### **`socketService.js` (WebSocket Client)**
-```js
-class SocketService {
-  constructor() {
-    this.socket = null;
-    this.onMessageCallback = null;
-    this.reconnectAttempts = 0;
-    this.maxReconnects = 5;
-  }
+## 🔧 How Socket.io Works
 
-  connect() {
-    const socketUrl = import.meta.env.VITE_SOCKET_BASE_URL;
-    this.socket = new WebSocket(socketUrl);
-    this.socket.withCredentials = true; //  Automatically sends cookies
+### 1️⃣ Setting Up the Server
+- Socket.io **attaches** itself to Fastify's HTTP server.
+- Clients connect via WebSockets or fallback to polling.
 
-    this.socket.onopen = () => console.log("WebSocket connected.");
-    this.socket.onmessage = (event) => this.onMessageCallback?.(event.data);
-    this.socket.onerror = (error) => console.error("❌ WebSocket error:", error);
-    this.socket.onclose = () => this.handleReconnect();
-  }
+```typescript
+import { FastifyInstance } from "fastify";
+import { Server as IOServer, Socket } from "socket.io";
+import { validateToken } from "../plugins/auth"; // Import JWT validation function
 
-  sendMessage(message) {
-    if (this.socket?.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify(message));
-    } else {
-      console.error(" WebSocket is not open.");
+export default async function socketPlugin(fastify: FastifyInstance) {
+  const io = new IOServer(fastify.server, {
+    cors: {
+      origin: "http://localhost:5173", // Restrict to allowed origins
+      methods: ["GET", "POST"],
+      credentials: true, // Allow cookies & authorization headers
+    },
+  });
+
+  fastify.decorate("io", io);
+
+  // Middleware for authentication
+  io.use(async (socket: Socket, next) => {
+    try {
+      const cookieHeader = socket.handshake.headers.cookie;
+      if (!cookieHeader) return next(new Error("Missing authentication token"));
+
+      const cookies = Object.fromEntries(
+        cookieHeader.split("; ").map((c) => c.split("="))
+      );
+      const token = cookies.authToken;
+      if (!token) return next(new Error("Missing authentication token"));
+
+      const user = await validateToken(token);
+      if (!user) return next(new Error("Invalid authentication token"));
+
+      (socket as any).user = user;
+      fastify.log.info(`Socket authenticated: User ${user.sub}`);
+      next();
+    } catch (error) {
+      next(new Error("Authentication failed"));
     }
-  }
+  });
 
-  handleReconnect() {
-    if (this.reconnectAttempts < this.maxReconnects) {
-      setTimeout(() => {
-        this.reconnectAttempts += 1;
-        this.connect();
-      }, Math.pow(2, this.reconnectAttempts) * 1000);
-    } else {
-      console.error(" Max reconnection attempts reached.");
-    }
-  }
+  io.on("connection", (socket) => {
+    const user = (socket as any).user;
+    fastify.log.info(`Socket connected: ${socket.id}, User: ${user.sub}`);
+
+    socket.on("customEvent", (data) => {
+      socket.emit("customResponse", {
+        message: "Hello from Fastify and Socket.io!",
+      });
+    });
+
+    socket.on("disconnect", () => {
+      fastify.log.info(`Socket disconnected: ${socket.id}, User: ${user.sub}`);
+    });
+  });
 }
 
-const socketService = new SocketService();
-export default socketService;
+# 2️⃣ How Clients Connect
+
+Clients use Socket.io's client library to establish a WebSocket connection.
+
+```javascript
+import { io } from "socket.io-client";
+
+const socket = io("http://localhost:3020", {
+  withCredentials: true, // Sends authentication cookies
+});
+
+// Listen for a successful connection
+socket.on("connect", () => {
+  console.log("Connected to server:", socket.id);
+});
+
+// Send a custom event
+socket.emit("customEvent", { message: "Hello from client" });
+
+// Listen for a response
+socket.on("customResponse", (data) => {
+  console.log("Received response:", data);
+});
+
+// Handle disconnection
+socket.on("disconnect", () => {
+  console.log("Disconnected from server");
+});
 ```
 
-#### **`AuthProvider.jsx` (Manages Authentication & WebSocket)**
-```js
-import { createContext, useContext, useEffect, useState } from "react";
-import { loginUser, fetchCurrentUser, logoutUser } from "../api/user/userService";
-import socketService from "../socketService";
+## ⚙️ How Authentication Works
 
-const AuthContext = createContext();
+- Client sends a request to the server including the authToken inside cookies.
+- Server intercepts the request in the `io.use()` middleware.
+- Server extracts the token from `socket.handshake.headers.cookie`.
+- Server validates the token using `validateToken()`.
+- If valid, the client is allowed to connect.
+- If invalid, the connection is rejected.
 
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+## 🔀 How Socket.io Handles Multiple Clients
 
-  useEffect(() => {
-    const loadUser = async () => {
-      try {
-        const currentUser = await fetchCurrentUser();
-        setUser(currentUser);
-        if (currentUser) socketService.connect();
-      } catch {
-        setUser(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadUser();
-  }, []);
+Each client gets its own `socket.id` (unique identifier). The server maintains a connection for each client.
 
-  const login = async (email, password) => {
-    await loginUser({ email, password });
-    const currentUser = await fetchCurrentUser();
-    setUser(currentUser);
-    socketService.connect();
-  };
+### Example: Sending messages to all clients
 
-  const logout = async () => {
-    await logoutUser();
-    setUser(null);
-    socketService.socket?.close();
-  };
+```typescript
+io.emit("message", { message: "Broadcast to all connected clients" });
+```
 
-  return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
-};
+### Example: Sending a message to a specific client
 
-export const useAuth = () => useContext(AuthContext);
+```typescript
+socket.emit("privateMessage", { message: "Hello, user!" });
+```
 
+### Example: Handling client disconnects
+
+```typescript
+socket.on("disconnect", () => {
+  console.log(`Client disconnected: ${socket.id}`);
+});
+```
+
+## 🚀 Key Takeaways
+
+- No explicit route is needed – Socket.io automatically manages connections.
+- Each client has its own socket – Identified by `socket.id`.
+- Authentication is validated before connection – Using cookies & JWTs.
+- Clients can send & receive real-time messages – With `emit()` & `on()`.
+- The server tracks active connections dynamically – Handles joins/disconnects.
+
+## 🎯 Next Steps
+
+- Ensure your frontend sends cookies with `withCredentials: true`.
+- Secure production environments by restricting CORS origins.
+- Handle reconnection logic in case of lost connections.
+- Implement rooms or namespaces for different event channels.
