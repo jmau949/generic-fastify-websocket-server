@@ -25,11 +25,20 @@ export default async function socketPlugin(fastify: FastifyInstance) {
   // Middleware for authentication
   io.use(async (socket: Socket, next) => {
     try {
+      // Extract the request ID from headers
+      const requestId =
+        socket.handshake.headers["x-request-id"] || "no-request-id";
+
       // Extract the token from the cookie header
       const cookieHeader = socket.handshake.headers.cookie;
-      console.log(cookieHeader);
+
+      // Add requestId to log context
+      const log = fastify.log.child({ requestId, socketId: socket.id });
+
+      log.info("Socket authentication attempt");
+
       if (!cookieHeader) {
-        fastify.log.warn(`Socket ${socket.id} missing authentication token.`);
+        log.warn("Missing authentication token");
         return next(new Error("Missing authentication token"));
       }
 
@@ -40,38 +49,51 @@ export default async function socketPlugin(fastify: FastifyInstance) {
       const token = cookies.authToken;
 
       if (!token) {
-        fastify.log.warn(`Socket ${socket.id} missing authToken cookie.`);
+        log.warn("Missing authToken cookie");
         return next(new Error("Missing authentication token"));
       }
 
       // Validate JWT token
       const user = await validateToken(token);
       if (!user) {
-        fastify.log.warn(`Socket ${socket.id} provided an invalid token.`);
+        log.warn("Invalid authentication token");
         return next(new Error("Invalid authentication token"));
       }
 
-      // Attach user to socket instance
+      // Attach user and requestId to socket instance
       (socket as any).user = user;
-      fastify.log.info(`Socket authenticated: User ${user.sub}`);
+      (socket as any).requestId = requestId;
+
+      log.info(`User ${user.sub} authenticated successfully`);
       next();
     } catch (error) {
-      fastify.log.error(`Socket authentication failed: ${error.message}`);
+      const requestId =
+        socket.handshake.headers["x-request-id"] || "no-request-id";
+      fastify.log.error(
+        { requestId, socketId: socket.id, error: error.message },
+        "Socket authentication failed"
+      );
       next(new Error("Authentication failed"));
     }
   });
 
   io.on("connection", (socket) => {
     const user = (socket as any).user;
-    fastify.log.info(`Socket connected: ${socket.id}, User: ${user.sub}`);
+    const requestId = (socket as any).requestId || "no-request-id";
+
+    // Create a logger with socket context
+    const log = fastify.log.child({
+      requestId,
+      socketId: socket.id,
+      userId: user.sub,
+    });
+
+    log.info("Socket connected");
 
     // Listen for a custom event sent by the client.
     socket.on("customEvent", (data) => {
-      fastify.log.info(
-        `Received customEvent from ${user.sub} (${socket.id}): ${JSON.stringify(
-          data
-        )}`
-      );
+      log.info({ data }, "Received customEvent");
+
       // Emit a response back to the same socket.
       socket.emit("customResponse", {
         message: "Hello from Fastify and Socket.io!",
@@ -80,7 +102,7 @@ export default async function socketPlugin(fastify: FastifyInstance) {
 
     // Handle socket disconnection.
     socket.on("disconnect", () => {
-      fastify.log.info(`Socket disconnected: ${socket.id}, User: ${user.sub}`);
+      log.info("Socket disconnected");
     });
   });
 }

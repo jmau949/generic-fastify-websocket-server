@@ -6,7 +6,7 @@ import cors from "@fastify/cors";
 import fastifyCookie from "@fastify/cookie";
 import fastifyHelmet from "@fastify/helmet";
 import socketPlugin from "./plugins/socket";
-
+import { v4 as uuidv4 } from "uuid"; // Add this import for UUID generation
 /**
  * Main Application class to configure and start the Fastify server.
  */
@@ -14,8 +14,36 @@ class Application {
   server: FastifyInstance;
 
   constructor() {
-    // Create a new Fastify instance with logging enabled.
-    this.server = fastify({ logger: true });
+    this.server = fastify({
+      logger: {
+        level: "info", // Adjust based on your needs
+        transport: {
+          target: "pino-pretty",
+          options: { colorize: true },
+        },
+        // Add request ID to all logs
+        serializers: {
+          req: (request) => {
+            return {
+              id: request.id,
+              method: request.method,
+              url: request.url,
+              // Add other relevant info but avoid sensitive data
+              headers: {
+                "x-request-id": request.headers["x-request-id"],
+              },
+            };
+          },
+        },
+      },
+      keepAliveTimeout: 60000, // Keep connections open for 60s
+      connectionTimeout: 60000,
+      // Generate request ID for each request
+      genReqId: (request) => {
+        // Use existing X-Request-ID from header if available, or generate a new one
+        return (request.headers["x-request-id"] as string) || uuidv4();
+      },
+    });
   }
 
   /**
@@ -62,8 +90,71 @@ class Application {
 
     // Register the custom Socket.io plugin.
     this.server.register(socketPlugin);
+    // Add request tracing hooks
+    this.registerRequestTracingHooks();
   }
+  registerRequestTracingHooks() {
+    // Add request tracking hook
+    this.server.addHook("onRequest", (request, reply, done) => {
+      // Set X-Request-ID header in the response
+      reply.header("X-Request-ID", request.id);
 
+      // Add request start time for calculating duration
+      request.startTime = process.hrtime();
+
+      // Log start of request
+      request.log.info({
+        event: "request_start",
+        requestId: request.id,
+        path: request.url,
+        method: request.method,
+      });
+
+      done();
+    });
+
+    // Add response hook to log request completion with timing
+    this.server.addHook("onResponse", (request, reply, done) => {
+      // Calculate request duration
+      const hrDuration = process.hrtime(request.startTime);
+      const durationMs = hrDuration[0] * 1000 + hrDuration[1] / 1000000;
+
+      // Log request completion
+      request.log.info({
+        event: "request_end",
+        requestId: request.id,
+        responseTime: durationMs.toFixed(2) + "ms",
+        statusCode: reply.statusCode,
+        path: request.url,
+        method: request.method,
+      });
+
+      done();
+    });
+
+    // Add error handler
+    this.server.setErrorHandler((error, request, reply) => {
+      request.log.error({
+        err: error,
+        stack: error.stack,
+        event: "request_error",
+        requestId: request.id,
+        path: request.url,
+        method: request.method,
+      });
+
+      // Determine appropriate status code and message
+      const statusCode = error.statusCode || 500;
+      const message = error.message || "Internal Server Error";
+
+      // Return standardized error response with request ID
+      reply.code(statusCode).send({
+        error: message,
+        statusCode,
+        requestId: request.id,
+      });
+    });
+  }
   /**
    * Main entry point for the application.
    */
@@ -71,6 +162,12 @@ class Application {
     console.log(`NODE ENV IS ${process.env.NODE_ENV}`);
     this.registerPlugins();
     await this.startHttpServer();
+  }
+}
+// Extend Fastify request interface to include our added properties
+declare module "fastify" {
+  interface FastifyRequest {
+    startTime?: [number, number]; // For tracking request duration
   }
 }
 
