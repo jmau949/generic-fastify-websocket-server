@@ -196,9 +196,3 @@ socket.on("disconnect", () => {
 - Clients can send & receive real-time messages – With `emit()` & `on()`.
 - The server tracks active connections dynamically – Handles joins/disconnects.
 
-## 🎯 Next Steps
-
-- Ensure your frontend sends cookies with `withCredentials: true`.
-- Secure production environments by restricting CORS origins.
-- Handle reconnection logic in case of lost connections.
-- Implement rooms or namespaces for different event channels.
