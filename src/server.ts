@@ -1,6 +1,5 @@
 import fastify, { FastifyInstance } from "fastify";
 import config from "./config/config";
-import auth from "./plugins/auth";
 import corsConfig from "./config/corsConfig";
 import cors from "@fastify/cors";
 import fastifyCookie from "@fastify/cookie";
@@ -85,8 +84,6 @@ class Application {
       },
     });
 
-    // Register custom authentication plugin (handles JWT verification, etc.).
-    this.server.register(auth);
 
     // Register the custom Socket.io plugin.
     this.server.register(socketPlugin);
