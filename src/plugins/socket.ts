@@ -1,11 +1,11 @@
+// plugins/socket.ts
 import { FastifyInstance } from "fastify";
 import { Server as IOServer, Socket } from "socket.io";
-import { validateToken } from "../plugins/auth"; // Import JWT validation function
+import { validateToken } from "../plugins/auth";
+import { v4 as uuidv4 } from "uuid";
 
 /**
- * Custom Socket.io plugin for Fastify with JWT authentication.
- *
- * This plugin integrates Socket.io with Fastify, adding token validation on connection.
+ * Custom Socket.io plugin for Fastify with JWT authentication and request tracking.
  *
  * @param fastify - Fastify instance
  */
@@ -13,36 +13,41 @@ export default async function socketPlugin(fastify: FastifyInstance) {
   // Create a new Socket.io instance attached to Fastify's underlying HTTP server.
   const io = new IOServer(fastify.server, {
     cors: {
-      origin: "http://localhost:5173", // For production, restrict this to allowed origins.
+      origin: "http://localhost:5173",
       methods: ["GET", "POST"],
-      credentials: true, // Allow credentials (cookies, authorization headers, etc.)
+      credentials: true,
     },
   });
 
-  // Optionally, decorate Fastify with the Socket.io instance.
+  // Decorate Fastify with the Socket.io instance.
   fastify.decorate("io", io);
 
-  // Middleware for authentication
+  // Middleware for request ID generation and authentication
   io.use(async (socket: Socket, next) => {
     try {
-      // Extract the request ID from headers
+      // Get request ID from headers or generate a new one
       const requestId =
-        socket.handshake.headers["x-request-id"] || "no-request-id";
+        (socket.handshake.headers["x-request-id"] as string) || uuidv4();
+
+      // Store requestId on socket for later use
+      (socket as any).requestId = requestId;
+
+      // Create a logger with the request ID
+      const log = fastify.log.child({
+        requestId,
+        socketId: socket.id,
+        event: "socket_auth_attempt",
+      });
 
       // Extract the token from the cookie header
       const cookieHeader = socket.handshake.headers.cookie;
-
-      // Add requestId to log context
-      const log = fastify.log.child({ requestId, socketId: socket.id });
-
-      log.info("Socket authentication attempt");
 
       if (!cookieHeader) {
         log.warn("Missing authentication token");
         return next(new Error("Missing authentication token"));
       }
 
-      // Parse cookies manually (basic method)
+      // Parse cookies manually
       const cookies = Object.fromEntries(
         cookieHeader.split("; ").map((c) => c.split("="))
       );
@@ -60,32 +65,41 @@ export default async function socketPlugin(fastify: FastifyInstance) {
         return next(new Error("Invalid authentication token"));
       }
 
-      // Attach user and requestId to socket instance
+      // Attach user to socket instance
       (socket as any).user = user;
-      (socket as any).requestId = requestId;
 
-      log.info(`User ${user.sub} authenticated successfully`);
+      log.info({ userId: user.sub }, "Socket authenticated successfully");
       next();
     } catch (error) {
       const requestId =
-        socket.handshake.headers["x-request-id"] || "no-request-id";
+        (socket as any).requestId ||
+        (socket.handshake.headers["x-request-id"] as string) ||
+        "unknown";
+
       fastify.log.error(
-        { requestId, socketId: socket.id, error: error.message },
+        {
+          requestId,
+          socketId: socket.id,
+          error: error.message,
+          event: "socket_auth_error",
+        },
         "Socket authentication failed"
       );
+
       next(new Error("Authentication failed"));
     }
   });
 
   io.on("connection", (socket) => {
     const user = (socket as any).user;
-    const requestId = (socket as any).requestId || "no-request-id";
+    const requestId = (socket as any).requestId;
 
     // Create a logger with socket context
     const log = fastify.log.child({
       requestId,
       socketId: socket.id,
       userId: user.sub,
+      event: "socket_activity",
     });
 
     log.info("Socket connected");
@@ -96,13 +110,19 @@ export default async function socketPlugin(fastify: FastifyInstance) {
 
       // Emit a response back to the same socket.
       socket.emit("customResponse", {
-        message: "Hello from Fastify and Socket.io!",
+        message: "Hello from Socket.io!!!!!!!",
+        requestId, // Echo back the requestId for client correlation
       });
     });
 
     // Handle socket disconnection.
     socket.on("disconnect", () => {
       log.info("Socket disconnected");
+    });
+
+    // Handle errors
+    socket.on("error", (error) => {
+      log.error({ error: error.message }, "Socket error");
     });
   });
 }

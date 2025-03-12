@@ -38,6 +38,7 @@
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.9",
+    "@types/jwk-to-pem": "^2.0.3",
     "@types/node": "^22.13.8",
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.5.14",
