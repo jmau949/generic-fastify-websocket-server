@@ -1,10 +1,11 @@
 // middleware/socketAuth.ts
 import { FastifyInstance } from "fastify";
 import { Socket } from "socket.io";
-import { validateToken } from "../plugins/auth";
-import { v4 as uuidv4 } from "uuid";
-// Parse cookies using utility function
+import { authenticateFromCookie } from "../plugins/auth";
 import { getCookie } from "../utils/cookie";
+import { v4 as uuidv4 } from "uuid";
+import config from "../config/config";
+
 /**
  * Socket.io authentication middleware
  * Extracts and validates the JWT token from cookies
@@ -34,19 +35,20 @@ export async function socketAuthMiddleware(
     const cookieHeader = socket.handshake.headers.cookie;
 
     if (!cookieHeader) {
-      log.warn("Missing authentication token");
+      log.warn("Missing authentication cookies");
       return next(new Error("Missing authentication token"));
     }
 
-    const token = getCookie(cookieHeader, "authToken");
+    // Get the auth token from cookies
+    const token = getCookie(cookieHeader, config.auth.cookieName);
 
     if (!token) {
-      log.warn("Missing authToken cookie");
+      log.warn(`Missing ${config.auth.cookieName} cookie`);
       return next(new Error("Missing authentication token"));
     }
 
     // Validate JWT token
-    const user = await validateToken(token);
+    const user = await authenticateFromCookie(token);
     if (!user) {
       log.warn("Invalid authentication token");
       return next(new Error("Invalid authentication token"));

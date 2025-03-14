@@ -2,6 +2,7 @@
 import { FastifyInstance } from "fastify";
 import { Server as IOServer, Socket } from "socket.io";
 import { socketAuthMiddleware } from "../middleware/socketAuth";
+import config from "../config/config";
 
 /**
  * Socket.io plugin for Fastify with authentication and request tracking.
@@ -11,11 +12,7 @@ import { socketAuthMiddleware } from "../middleware/socketAuth";
 export default async function socketPlugin(fastify: FastifyInstance) {
   // Create a new Socket.io instance attached to Fastify's underlying HTTP server.
   const io = new IOServer(fastify.server, {
-    cors: {
-      origin: process.env.CORS_ORIGIN || "http://localhost:5173",
-      methods: ["GET", "POST"],
-      credentials: true,
-    },
+    cors: config.cors.production,
   });
 
   // Decorate Fastify with the Socket.io instance.
@@ -41,7 +38,7 @@ export default async function socketPlugin(fastify: FastifyInstance) {
     // Listen for a custom event sent by the client.
     socket.on("customEvent", (data) => {
       log.info({ data }, "Received customEvent");
-      console.log("blah");
+
       // Emit a response back to the same socket.
       socket.emit("customResponse", {
         message: "Hello from Socket.io!!!!!!!",
