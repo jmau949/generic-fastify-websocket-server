@@ -68,9 +68,6 @@ class SocketApplication {
     // Register Helmet for security
     this.server.register(fastifyHelmet);
 
-    // Register CORS middleware
-    this.server.register(cors, corsConfig[env]);
-
     // Register Cookie plugin (needed for authentication)
     this.server.register(fastifyCookie, {
       parseOptions: {

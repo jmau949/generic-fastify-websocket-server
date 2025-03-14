@@ -12,7 +12,10 @@ import config from "../config/config";
 export default async function socketPlugin(fastify: FastifyInstance) {
   // Create a new Socket.io instance attached to Fastify's underlying HTTP server.
   const io = new IOServer(fastify.server, {
-    cors: config.cors.production,
+    cors:
+      process.env.NODE_ENV === "production"
+        ? config.cors.production
+        : config.cors.development,
     // Important settings for AWS deployment
     // These can help with Lambda's connection handling
     connectTimeout: 45000,
