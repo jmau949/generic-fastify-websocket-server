@@ -32,8 +32,10 @@ class SocketApplication {
    */
   async startSocketServer() {
     try {
-      console.log("config.port", config.port);
-      const address = await this.server.listen({ port: config.port });
+      console.log("config.server.port", config.server.port);
+      const address = await this.server.listen({
+        port: config.server.port as number,
+      });
       console.log(`Socket.io server listening at ${address}`);
     } catch (error) {
       this.server.log.error(error);

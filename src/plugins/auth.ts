@@ -1,16 +1,18 @@
+// plugins/auth.ts
 import axios from "axios";
 import * as jwt from "jsonwebtoken";
 import jwkToPem from "jwk-to-pem";
+import config from "../config/config";
 
-// AWS Cognito environment variables
-const USER_POOL_ID = process.env.AWS_COGNITO_USER_POOL_ID; // Cognito User Pool ID
-const REGION = process.env.AWS_REGION; // AWS region
+// AWS Cognito configuration
+const USER_POOL_ID = config.aws.cognito.userPoolId;
+const REGION = config.aws.region;
 const JWK_URL = `https://cognito-idp.${REGION}.amazonaws.com/${USER_POOL_ID}/.well-known/jwks.json`;
 
 // In-memory cache for JWKS
 let jwksCache: any = null;
 let jwksLastFetch = 0;
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const CACHE_TTL = config.auth.jwksCacheTTL;
 
 /**
  * Fetch and cache the JSON Web Key Set (JWKS) from AWS Cognito.
@@ -68,5 +70,22 @@ export async function validateToken(token: string) {
   } catch (error) {
     console.error("JWT Verification Failed:", error);
     throw new Error("Invalid token");
+  }
+}
+
+/**
+ * Extract and validate JWT token from cookie
+ * @param cookieValue - The cookie value containing the JWT token
+ * @returns The user data from the token or null if invalid
+ */
+export async function authenticateFromCookie(cookieValue: string) {
+  if (!cookieValue) {
+    return null;
+  }
+
+  try {
+    return await validateToken(cookieValue);
+  } catch (error) {
+    return null;
   }
 }
