@@ -58,102 +58,156 @@ npm run dev
 
 ---
 
-# 📡 Socket.io Integration with Fastify
+```md
+# Socket.io Custom Hook: useSocket
 
-This document explains how **Socket.io** works in a Fastify application, how clients connect, and how authentication is handled.
+This custom React hook creates and manages a Socket.io connection, while incorporating a request ID from session storage for correlating API requests. This README explains how to use and implement the hook, along with best practices for integrating it into your project.
 
----
+## Features
 
-## 🔧 How Socket.io Works
+- **Connection Management**: Automatically establishes and cleans up the Socket.io connection.
+- **Session Request ID**: Retrieves the `lastRequestId` from session storage and includes it in the connection headers.
+- **Connection Status**: Exposes an `isConnected` boolean to indicate whether the socket is connected.
 
-### 1️⃣ Setting Up the Server
-- Socket.io **attaches** itself to Fastify's HTTP server.
-- Clients connect via WebSockets or fallback to polling.
+## Installation
 
-```typescript
-import { FastifyInstance } from "fastify";
-import { Server as IOServer, Socket } from "socket.io";
-import { validateToken } from "../plugins/auth"; // Import JWT validation function
+Ensure you have the required dependencies in your project:
 
-export default async function socketPlugin(fastify: FastifyInstance) {
-  const io = new IOServer(fastify.server, {
-    cors: {
-      origin: "http://localhost:5173", // Restrict to allowed origins
-      methods: ["GET", "POST"],
-      credentials: true, // Allow cookies & authorization headers
-    },
-  });
+- [Socket.io Client](https://socket.io/)
+- React
 
-  fastify.decorate("io", io);
+Install the Socket.io client using npm or yarn:
 
-  // Middleware for authentication
-  io.use(async (socket: Socket, next) => {
-    try {
-      const cookieHeader = socket.handshake.headers.cookie;
-      if (!cookieHeader) return next(new Error("Missing authentication token"));
+```bash
+npm install socket.io-client
+# or
+yarn add socket.io-client
+```
 
-      const cookies = Object.fromEntries(
-        cookieHeader.split("; ").map((c) => c.split("="))
-      );
-      const token = cookies.authToken;
-      if (!token) return next(new Error("Missing authentication token"));
+## Usage
 
-      const user = await validateToken(token);
-      if (!user) return next(new Error("Invalid authentication token"));
+1. **Import the Hook**
 
-      (socket as any).user = user;
-      fastify.log.info(`Socket authenticated: User ${user.sub}`);
-      next();
-    } catch (error) {
-      next(new Error("Authentication failed"));
+   Import the custom hook into your React component:
+
+```tsx
+import useSocket from "./path/to/useSocket";
+```
+
+2. **Integrate the Hook**
+
+   Use the hook within your component to access the `socket` instance and its connection status:
+
+```tsx
+const MyComponent = () => {
+  const { socket, isConnected } = useSocket("http://your-socket-server-url");
+
+  // Example: Emitting an event
+  const sendMessage = () => {
+    if (socket) {
+      socket.emit("message", { text: "Hello from client" });
     }
-  });
+  };
 
-  io.on("connection", (socket) => {
-    const user = (socket as any).user;
-    fastify.log.info(`Socket connected: ${socket.id}, User: ${user.sub}`);
+  return (
+    <div>
+      <h1>Socket Connection Status: {isConnected ? "Connected" : "Disconnected"}</h1>
+      <button onClick={sendMessage}>Send Message</button>
+    </div>
+  );
+};
 
-    socket.on("customEvent", (data) => {
-      socket.emit("customResponse", {
-        message: "Hello from Fastify and Socket.io!",
-      });
-    });
+export default MyComponent;
+```
 
-    socket.on("disconnect", () => {
-      fastify.log.info(`Socket disconnected: ${socket.id}, User: ${user.sub}`);
-    });
-  });
+## Code Implementation
+
+Below is the complete code for the custom hook:
+
+```tsx
+import { useEffect, useState } from "react";
+import { io, Socket } from "socket.io-client";
+
+interface UseSocketReturn {
+  socket: Socket | null;
+  isConnected: boolean;
 }
 
-# 2️⃣ How Clients Connect
+/**
+ * Custom hook to create and manage a Socket.io connection.
+ * Incorporates request ID from session storage for correlation with API requests.
+ *
+ * @param url - The URL of the Socket.io server.
+ * @returns The socket instance and connection status.
+ */
+const useSocket = (url: string): UseSocketReturn => {
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [isConnected, setIsConnected] = useState<boolean>(false);
 
-Clients use Socket.io's client library to establish a WebSocket connection.
+  useEffect(() => {
+    // Get the lastRequestId from session storage
+    const lastRequestId = sessionStorage.getItem('lastRequestId');
+    
+    const socketInstance: Socket = io(url, {
+      withCredentials: true,
+      extraHeaders: {
+        // Include the X-Request-Id header if available
+        'X-Request-Id': lastRequestId || ''
+      },
+    });
 
-```javascript
-import { io } from "socket.io-client";
+    socketInstance.on("connect", () => {
+      console.log("Socket connected:", socketInstance.id, "with requestId:", lastRequestId);
+      setIsConnected(true);
+    });
 
-const socket = io("http://localhost:3020", {
-  withCredentials: true, // Sends authentication cookies
-});
+    socketInstance.on("disconnect", () => {
+      console.log("Socket disconnected");
+      setIsConnected(false);
+    });
 
-// Listen for a successful connection
-socket.on("connect", () => {
-  console.log("Connected to server:", socket.id);
-});
+    socketInstance.on("connect_error", (error) => {
+      console.error("Socket connection error:", error);
+    });
 
-// Send a custom event
-socket.emit("customEvent", { message: "Hello from client" });
+    setSocket(socketInstance);
 
-// Listen for a response
-socket.on("customResponse", (data) => {
-  console.log("Received response:", data);
-});
+    return () => {
+      socketInstance.disconnect();
+    };
+  }, [url]);
 
-// Handle disconnection
-socket.on("disconnect", () => {
-  console.log("Disconnected from server");
-});
+  return { socket, isConnected };
+};
+
+export default useSocket;
 ```
+
+## Best Practices
+
+- **Resource Cleanup**:  
+  Always disconnect the socket in the cleanup function of `useEffect` to avoid memory leaks.
+
+- **Error Handling**:  
+  Listen for connection errors using the `connect_error` event to diagnose and handle potential issues.
+
+- **Conditional Emission**:  
+  Ensure the socket is connected before emitting events to prevent runtime errors.
+
+- **Environment Variables**:  
+  Use environment variables to store sensitive data like the Socket.io server URL, especially in production.
+
+- **Session Management**:  
+  Validate and manage the `lastRequestId` from session storage to maintain reliable request correlation.
+
+- **Security**:  
+  In production, use secure connections (`https`/`wss`) to safeguard your data during transmission.
+
+## Conclusion
+
+The `useSocket` custom hook simplifies integrating Socket.io in your React applications by managing the connection lifecycle and correlating requests using session-stored IDs. Customize and extend it as needed to better suit your application's requirements.
+```
+
 
 ## ⚙️ How Authentication Works
 
@@ -245,3 +299,9 @@ To send messages to multiple users:
 
 - On connect, validate tokens and store authenticated user info with the connection.
 - For reconnects, users can provide a session token to restore their previous state.
+
+
+
+
+i have a typescript fastify socket io only server that i am planning on deploying to api gateway, lambda, and dynamodb. help me productionize it similarily to my other fastify http server. 
+currently, i am doing auth cookie check inside socket.ts, abstract it out
