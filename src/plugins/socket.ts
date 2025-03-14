@@ -13,6 +13,11 @@ export default async function socketPlugin(fastify: FastifyInstance) {
   // Create a new Socket.io instance attached to Fastify's underlying HTTP server.
   const io = new IOServer(fastify.server, {
     cors: config.cors.production,
+    // Important settings for AWS deployment
+    // These can help with Lambda's connection handling
+    connectTimeout: 45000,
+    pingTimeout: 30000,
+    pingInterval: 25000,
   });
 
   // Decorate Fastify with the Socket.io instance.
@@ -55,5 +60,10 @@ export default async function socketPlugin(fastify: FastifyInstance) {
     socket.on("error", (error) => {
       log.error({ error: error.message }, "Socket error");
     });
+  });
+  // Register a hook to close all socket connections on server shutdown
+  fastify.addHook("onClose", (instance, done) => {
+    io.close();
+    done();
   });
 }

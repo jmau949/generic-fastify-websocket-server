@@ -1,3 +1,4 @@
+// server.ts
 import fastify, { FastifyInstance } from "fastify";
 import config from "./config/config";
 import corsConfig from "./config/corsConfig";
@@ -24,6 +25,7 @@ class SocketApplication {
       },
       keepAliveTimeout: 60000,
       connectionTimeout: 60000,
+      trustProxy: process.env.NODE_ENV === "production", // Important for AWS API Gateway
     });
   }
 
@@ -35,6 +37,7 @@ class SocketApplication {
       console.log("config.server.port", config.server.port);
       const address = await this.server.listen({
         port: config.server.port as number,
+        host: config.server.host || "0.0.0.0",
       });
       console.log(`Socket.io server listening at ${address}`);
     } catch (error) {
@@ -43,6 +46,18 @@ class SocketApplication {
     }
   }
 
+  /**
+   * Add a health check route (useful for API Gateway and load balancers)
+   */
+  addHealthCheck() {
+    this.server.get("/health", async () => {
+      return {
+        status: "ok",
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || "development",
+      };
+    });
+  }
   /**
    * Register Fastify plugins for Socket.io with necessary middleware.
    */
@@ -70,7 +85,13 @@ class SocketApplication {
     // Register the custom Socket.io plugin with enhanced request ID support
     this.server.register(socketPlugin);
 
-    // We're not registering HTTP-specific hooks since this is a socket-only server
+    // Add request ID generator hook
+    this.server.addHook("onRequest", (request, reply, done) => {
+      if (!request.headers["x-request-id"]) {
+        request.headers["x-request-id"] = uuidv4();
+      }
+      done();
+    });
   }
 
   /**
@@ -79,6 +100,7 @@ class SocketApplication {
   async main() {
     console.log(`NODE ENV IS ${process.env.NODE_ENV}`);
     this.registerPlugins();
+    this.addHealthCheck();
     await this.startSocketServer();
   }
 }
