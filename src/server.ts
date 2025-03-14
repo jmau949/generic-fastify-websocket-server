@@ -6,6 +6,7 @@ import fastifyHelmet from "@fastify/helmet";
 import socketPlugin from "./plugins/socketPlugin";
 import { v4 as uuidv4 } from "uuid";
 import sentryMonitoring from "./plugins/sentryMonitoringPlugin";
+import errorHandlerPlugin from "./plugins/errorHandlerPlugin";
 
 /**
  * Socket.io Server Application
@@ -79,6 +80,7 @@ class SocketApplication {
 
     // Register the custom Socket.io plugin with enhanced request ID support
     this.server.register(socketPlugin);
+    this.server.register(errorHandlerPlugin);
   }
 
   /**
