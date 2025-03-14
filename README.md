@@ -196,3 +196,52 @@ socket.on("disconnect", () => {
 - Clients can send & receive real-time messages – With `emit()` & `on()`.
 - The server tracks active connections dynamically – Handles joins/disconnects.
 
+
+# Complete WebSocket Flow with Connection Management
+
+
+# Choosing Dynamo over redis due to cost
+
+
+## Client Connection
+
+1. Client initiates a WebSocket connection to your API Gateway endpoint.
+2. API Gateway routes this to the `$connect` route, invoking your Lambda.
+3. Lambda handler stores the connection ID in DynamoDB/Redis with user metadata.
+4. API Gateway maintains the open connection.
+
+## Message Handling
+
+1. When a client sends a message, API Gateway invokes your Lambda with the message payload.
+2. Lambda reads the message and determines the action needed.
+3. Lambda looks up connection data from DynamoDB/Redis using the connection ID.
+4. Lambda processes the message and sends any responses.
+
+## Broadcasting/Multi-User Communication
+
+To send messages to multiple users:
+
+1. Lambda queries DynamoDB/Redis to get relevant connection IDs.
+2. Lambda uses the API Gateway Management API to send messages to those connections.
+3. Example: When a user posts a message to a chat room, you query for all connections in that room.
+
+## Disconnection
+
+1. When a client disconnects, API Gateway triggers the `$disconnect` route.
+2. Lambda removes the connection ID from DynamoDB/Redis.
+3. Any session state is preserved if needed for later reconnection.
+
+## Connection Data Structure in DynamoDB
+
+- **Primary key**: Connection ID
+- **Attributes**:
+  - User ID
+  - Authentication status
+  - Joined rooms/channels
+  - Last activity timestamp
+- **Optional**: TTL attribute for automatic cleanup of stale connections
+
+## Authentication and Session Management
+
+- On connect, validate tokens and store authenticated user info with the connection.
+- For reconnects, users can provide a session token to restore their previous state.
