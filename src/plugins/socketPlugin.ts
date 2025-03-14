@@ -51,8 +51,6 @@ export default async function socketPlugin(fastify: FastifyInstance) {
       event: "socket_activity",
     });
 
-    log.info("Socket connected");
-
     // Listen for a custom event sent by the client.
     socket.on("customEvent", (data) => {
       log.info({ data }, "Received customEvent");
