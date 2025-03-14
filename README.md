@@ -125,62 +125,29 @@ export default MyComponent;
 Below is the complete code for the custom hook:
 
 ```tsx
-import { useEffect, useState } from "react";
-import { io, Socket } from "socket.io-client";
+const SOCKET_SERVER_URL = "https://your-socket-server.com"; // Replace with actual URL
 
-interface UseSocketReturn {
-  socket: Socket | null;
-  isConnected: boolean;
-}
-
-/**
- * Custom hook to create and manage a Socket.io connection.
- * Incorporates request ID from session storage for correlation with API requests.
- *
- * @param url - The URL of the Socket.io server.
- * @returns The socket instance and connection status.
- */
-const useSocket = (url: string): UseSocketReturn => {
-  const [socket, setSocket] = useState<Socket | null>(null);
-  const [isConnected, setIsConnected] = useState<boolean>(false);
+const MyComponent = () => {
+  const { socket, isConnected } = useSocket(SOCKET_SERVER_URL);
 
   useEffect(() => {
-    // Get the lastRequestId from session storage
-    const lastRequestId = sessionStorage.getItem('lastRequestId');
-    
-    const socketInstance: Socket = io(url, {
-      withCredentials: true,
-      extraHeaders: {
-        // Include the X-Request-Id header if available
-        'X-Request-Id': lastRequestId || ''
-      },
-    });
+    if (!socket) return;
 
-    socketInstance.on("connect", () => {
-      console.log("Socket connected:", socketInstance.id, "with requestId:", lastRequestId);
-      setIsConnected(true);
+    socket.on("message", (data) => {
+      console.log("Received message:", data);
     });
-
-    socketInstance.on("disconnect", () => {
-      console.log("Socket disconnected");
-      setIsConnected(false);
-    });
-
-    socketInstance.on("connect_error", (error) => {
-      console.error("Socket connection error:", error);
-    });
-
-    setSocket(socketInstance);
 
     return () => {
-      socketInstance.disconnect();
+      socket.off("message");
     };
-  }, [url]);
+  }, [socket]);
 
-  return { socket, isConnected };
+  return (
+    <div>
+      <h2>Socket Status: {isConnected ? "Connected" : "Disconnected"}</h2>
+    </div>
+  );
 };
-
-export default useSocket;
 ```
 
 ## Best Practices
