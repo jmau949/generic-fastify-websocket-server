@@ -110,7 +110,7 @@ const socketErrorMonitoringPlugin: FastifyPluginCallback = (
   // Flush Sentry events when the server closes
   fastify.addHook("onClose", (instance, done) => {
     // For Lambda environments, set a shorter timeout
-    const flushTimeout = process.env.AWS_LAMBDA_FUNCTION_NAME ? 2000 : 5000;
+    const flushTimeout = process.env.AWS_LAMBDA_FUNCTION_NAME ? 1250 : 5000;
     Sentry.flush(flushTimeout)
       .then(() => done())
       .catch(() => done());

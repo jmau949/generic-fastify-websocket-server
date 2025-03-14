@@ -1,12 +1,11 @@
 // server.ts
 import fastify, { FastifyInstance } from "fastify";
 import config from "./config/config";
-import corsConfig from "./config/corsConfig";
-import cors from "@fastify/cors";
 import fastifyCookie from "@fastify/cookie";
 import fastifyHelmet from "@fastify/helmet";
-import socketPlugin from "./plugins/socket";
+import socketPlugin from "./plugins/socketPlugin";
 import { v4 as uuidv4 } from "uuid";
+import sentryMonitoring from "./plugins/sentryMonitoringPlugin";
 
 /**
  * Socket.io Server Application
@@ -62,8 +61,7 @@ class SocketApplication {
    * Register Fastify plugins for Socket.io with necessary middleware.
    */
   registerPlugins() {
-    // Determine environment-specific CORS settings.
-    const env = (process.env.NODE_ENV as keyof typeof corsConfig) || "dev";
+    this.server.register(sentryMonitoring);
 
     // Register Helmet for security
     this.server.register(fastifyHelmet);
@@ -81,14 +79,6 @@ class SocketApplication {
 
     // Register the custom Socket.io plugin with enhanced request ID support
     this.server.register(socketPlugin);
-
-    // Add request ID generator hook
-    this.server.addHook("onRequest", (request, reply, done) => {
-      if (!request.headers["x-request-id"]) {
-        request.headers["x-request-id"] = uuidv4();
-      }
-      done();
-    });
   }
 
   /**
